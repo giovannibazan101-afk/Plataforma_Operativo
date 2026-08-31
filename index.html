@@ -259,6 +259,32 @@ main{padding:26px 20px 70px;max-width:1360px;margin:0 auto;}
 .kpi-mini.c-desemb{background:#eaf4fc;border-color:#cfe6f7;}
 .kpi-mini.c-desemb .kpi-mini-value{color:var(--info);}
 
+/* Botón/banner "Promesas de pago para hoy" — se muestra en Mi cartera
+   cuando el operativo tiene promesas que justo vencen hoy, para que las
+   siga sin tener que buscar cliente por cliente. */
+.btn-promesas-hoy{
+  display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #f4d58a;
+  background:linear-gradient(135deg,#fff6e0,#ffedc2);color:#8a5a00;font-size:13px;font-weight:800;
+  cursor:pointer;transition:filter .15s, transform .1s;
+}
+.btn-promesas-hoy:hover{filter:brightness(0.97);}
+.btn-promesas-hoy:active{transform:scale(.99);}
+
+/* Paginación (listas de clientes y tabla de vendedores) */
+.pagination{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin-top:14px;padding-top:14px;}
+.pagination:empty{margin:0;padding:0;}
+.pagination .pg-btn{
+  min-width:32px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;transition:filter .15s;
+}
+.pagination .pg-btn:hover{filter:brightness(0.97);}
+.pagination .pg-btn.active{background:var(--brand);border-color:var(--brand);color:#fff;}
+.pagination .pg-btn:disabled{opacity:.4;cursor:not-allowed;}
+.pagination .pg-ellipsis{font-size:12.5px;color:var(--text-dim);padding:0 2px;}
+.pagination .pg-info{font-size:11px;color:var(--text-dim);width:100%;text-align:center;margin-top:2px;order:99;}
+
 /* ============================================================
    BARRA DE EFECTIVIDAD
    ============================================================ */
@@ -779,6 +805,9 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
                 <div class="kpi-mini-value" id="kpiCantDesembolsos">—</div>
               </div>
             </div>
+            <button class="btn-promesas-hoy" id="btnPromesasHoy" style="display:none;" onclick="irAPromesasHoy()">
+              🔔 <span id="btnPromesasHoyTexto">0 promesas de pago para hoy</span>
+            </button>
           </div>
 
           <div class="wb-card wb-queue-list">
@@ -796,6 +825,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
                 <div class="chip" data-filter="vencido">Vencidos</div>
                 <div class="chip" data-filter="al_dia">Al día</div>
                 <div class="chip" data-filter="sin_contacto">Sin contacto</div>
+                <div class="chip" data-filter="promesa_hoy">Promesas de hoy</div>
                 <div class="chip" data-filter="promesa_incumplida">Promesas</div>
                 <div class="chip" data-filter="escalar">Escalar</div>
               </div>
@@ -803,6 +833,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
             <div class="client-list" id="clientGrid">
               <div class="loading">Cargando clientes...</div>
             </div>
+            <div class="pagination" id="clientGridPaginador"></div>
           </div>
         </div>
 
@@ -826,6 +857,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
               <div class="wb-stats-row">
                 <div class="wb-stat"><span>Cuotas adeudadas</span><b id="wbTotalDeuda" class="mono">—</b></div>
                 <div class="wb-stat"><span>Días de atraso</span><b id="wbDiasAtraso" class="mono">—</b></div>
+                <div class="wb-stat" id="wbProximoVencWrap" style="display:none;"><span>Próximo vencimiento</span><b id="wbProximoVenc" class="mono">—</b></div>
               </div>
               <div class="wb-chart" id="wbChart"></div>
               <button class="btn-whatsapp big" id="btnWhatsappWb" style="display:none;" onclick="enviarCobranzaWhatsAppModal()" title="Enviar recordatorio de cobranza por WhatsApp">
@@ -956,6 +988,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
         <div id="adminTableWrap">
           <div class="loading">Cargando resumen de vendedores...</div>
         </div>
+        <div class="pagination" id="adminVendedoresPaginador"></div>
       </div>
 
       <!-- Detalle de un vendedor -->
@@ -975,6 +1008,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
             <div class="chip" data-filter="vencido">Vencidos</div>
             <div class="chip" data-filter="al_dia">Al día</div>
             <div class="chip" data-filter="sin_contacto">Sin contacto</div>
+            <div class="chip" data-filter="promesa_hoy">Promesas de hoy</div>
             <div class="chip" data-filter="promesa_incumplida">Promesas incumplidas</div>
             <div class="chip" data-filter="escalar">Para escalar</div>
           </div>
@@ -987,6 +1021,7 @@ table.vendor-table{width:100%;border-collapse:collapse;min-width:560px;}
           </select>
         </div>
         <div class="client-list" id="adminClientGrid"></div>
+        <div class="pagination" id="adminClientGridPaginador"></div>
       </div>
       </div>
 
@@ -1242,6 +1277,14 @@ let ordenActual = 'prioridad';
 let adminResumenCache = [];
 let adminClientesCache = [];
 
+// Paginación: para no renderizar cientos de filas de una sola vez, las
+// listas largas (cartera del vendedor, cartera de un vendedor en admin, y
+// la tabla de vendedores) se cortan en páginas de PAGE_SIZE elementos.
+const PAGE_SIZE = 10;
+let clientesPaginaActual = 1;
+let adminClientesPaginaActual = 1;
+let adminVendedoresPaginaActual = 1;
+
 // Umbral de morosidad (%) por debajo del cual el operativo califica para
 // el premio mensual. Debe coincidir con UMBRAL_PREMIO_MOROSIDAD en Code.gs.
 const UMBRAL_PREMIO_MOROSIDAD = 5;
@@ -1250,7 +1293,10 @@ let adminFiltroEstado = 'todos';
 let vendedorActivo = null;
 
 /* Operaciones del día */
-let opsFecha = new Date().toISOString().slice(0,10);
+// Usa la fecha LOCAL del dispositivo (no UTC) para que "hoy" coincida con
+// el día real del operario, sin importar la hora a la que esté cargando
+// la pantalla ni la zona horaria del navegador/servidor.
+let opsFecha = fechaLocalHoyISO();
 let opsCache = [];
 let opsKpisCache = null;
 let opsFiltroEstado = 'todas';
@@ -1658,9 +1704,21 @@ function fmtAging(dias){
   return dias + (dias === 1 ? ' día' : ' días');
 }
 
-/* Cálculo unificado de la tasa de morosidad, por CANTIDAD DE CUOTAS:
-   vencidas / (vencidas + pendientes). Ya no se usa monto en ningún lado. */
-function calcularMorosidad({ cuotasVencidas = 0, cuotasPendientes = 0 }){
+/* Cálculo unificado de la tasa de morosidad, por CAPITAL: capital
+ * atrasado ÷ capital actual colocado. Estos dos montos vienen de la hoja
+ * "CALCULO DE MOROSIDAD" (mismos capitalActual / saldoCapitalAtraso que
+ * ya trae cada vendedor en adminResumenCache). Es el mismo criterio que
+ * usa el negocio para su reporte de morosidad real en guaraníes.
+ *
+ * Si un vendedor todavía no tiene fila cargada en esa hoja (capitalActual
+ * viene null/undefined), se cae a una aproximación por CANTIDAD DE
+ * CUOTAS (vencidas / total) para no dejar el dato en blanco — pero se
+ * marca metodo:'cuotas' para poder avisar que es una aproximación. */
+function calcularMorosidad({ capitalActual = null, saldoCapitalAtraso = null, cuotasVencidas = 0, cuotasPendientes = 0 }){
+  if(capitalActual !== null && capitalActual !== undefined && capitalActual > 0){
+    const atraso = Number(saldoCapitalAtraso) || 0;
+    return { pct: Math.min(100, (atraso / capitalActual) * 100), metodo: 'capital' };
+  }
   const totalCuotas = (cuotasPendientes || 0) + (cuotasVencidas || 0);
   if(totalCuotas > 0){
     return { pct: Math.min(100, (cuotasVencidas / totalCuotas) * 100), metodo: 'cuotas' };
@@ -1691,8 +1749,9 @@ function textoTasaManual(pct){
 }
 
 function textoFormula(metodo){
-  if(metodo === 'cuotas') return 'Cálculo: cuotas vencidas ÷ (cuotas vencidas + al día) × 100';
-  return 'Sin cuotas pendientes registradas todavía';
+  if(metodo === 'capital') return 'Cálculo: capital atrasado ÷ capital actual colocado × 100';
+  if(metodo === 'cuotas') return 'Cálculo aproximado (sin capital cargado): cuotas vencidas ÷ (cuotas vencidas + al día) × 100';
+  return 'Sin datos de capital ni cuotas registrados todavía';
 }
 
 function pintarGauge(pct, arcId, valueId){
@@ -1880,6 +1939,19 @@ async function cargarDashboard(){
   document.getElementById('kpiCapitalActual').textContent = (capActual === null || capActual === undefined) ? 'Sin datos' : fmtMoney(capActual);
   document.getElementById('kpiSaldoAtraso').textContent = (capAtraso === null || capAtraso === undefined) ? 'Sin datos' : fmtMoney(capAtraso);
   document.getElementById('kpiCantDesembolsos').textContent = (cantDesemb === null || cantDesemb === undefined) ? 'Sin datos' : cantDesemb;
+
+  // Botón/banner "Promesas de pago para hoy": cuenta cuántos clientes
+  // tienen su promesa más reciente con vencimiento justo hoy (estado
+  // 'vence_hoy', calculado en el backend), y solo se muestra si hay al
+  // menos una, para no ocupar espacio en días sin promesas pendientes.
+  const promesasHoy = clientesCache.filter(c => c.promesa && c.promesa.estado === 'vence_hoy').length;
+  const btnPromesasHoy = document.getElementById('btnPromesasHoy');
+  if(promesasHoy > 0){
+    document.getElementById('btnPromesasHoyTexto').textContent = `${promesasHoy} promesa${promesasHoy === 1 ? '' : 's'} de pago para hoy`;
+    btnPromesasHoy.style.display = 'flex';
+  } else {
+    btnPromesasHoy.style.display = 'none';
+  }
 }
 
 /* ---------- CLIENTES (vendedor) ---------- */
@@ -1887,7 +1959,53 @@ async function cargarClientes(){
   const resp = await apiPost('clientes', { usuario: session.usuario });
   if(!resp.ok){ showToast('Error cargando clientes'); return; }
   clientesCache = resp.clientes || [];
+  clientesPaginaActual = 1;
   renderClientes();
+}
+
+/* ============================================================
+   PAGINACIÓN GENÉRICA (listas de clientes / tabla de vendedores)
+   ============================================================ */
+function paginar(lista, pagina, porPagina){
+  const total = lista.length;
+  const totalPaginas = Math.max(1, Math.ceil(total / porPagina));
+  const p = Math.min(Math.max(1, pagina), totalPaginas);
+  const inicio = (p - 1) * porPagina;
+  return { pageItems: lista.slice(inicio, inicio + porPagina), pagina: p, totalPaginas, total };
+}
+
+function renderPaginador(containerId, pagina, totalPaginas, total, porPagina, onPageChange){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(totalPaginas <= 1){ el.innerHTML = ''; return; }
+
+  // Ventana de páginas visibles: siempre primera, última, la actual y una
+  // a cada lado; el resto se colapsa en "...".
+  const paginas = [];
+  for(let i = 1; i <= totalPaginas; i++){
+    if(i === 1 || i === totalPaginas || Math.abs(i - pagina) <= 1) paginas.push(i);
+    else if(paginas[paginas.length - 1] !== '...') paginas.push('...');
+  }
+
+  const desde = (pagina - 1) * porPagina + 1;
+  const hasta = Math.min(total, pagina * porPagina);
+
+  el.innerHTML = `
+    <button class="pg-btn" data-pg="prev" ${pagina === 1 ? 'disabled' : ''}>‹</button>
+    ${paginas.map(p => p === '...'
+      ? `<span class="pg-ellipsis">…</span>`
+      : `<button class="pg-btn ${p === pagina ? 'active' : ''}" data-pg="${p}">${p}</button>`
+    ).join('')}
+    <button class="pg-btn" data-pg="next" ${pagina === totalPaginas ? 'disabled' : ''}>›</button>
+    <div class="pg-info">${desde}–${hasta} de ${total}</div>`;
+
+  el.querySelectorAll('.pg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.pg;
+      const destino = val === 'prev' ? pagina - 1 : val === 'next' ? pagina + 1 : Number(val);
+      onPageChange(destino);
+    });
+  });
 }
 
 function ordenarLista(lista, criterio){
@@ -1965,7 +2083,7 @@ function exportarPDF(filas, nombreArchivo, titulo){
   showToast('Reporte exportado a PDF');
 }
 
-function fechaHoyISO(){ return new Date().toISOString().slice(0,10); }
+function fechaHoyISO(){ return fechaLocalHoyISO(); }
 
 /* Devuelve la fecha de HOY en formato 'YYYY-MM-DD' usando la hora LOCAL
    del dispositivo (no UTC), para evitar que toISOString() adelante o
@@ -2048,23 +2166,24 @@ function exportarOperacionesPDF(){
   exportarPDF(filas, `NegoFin_Operaciones_${session.usuario}_${opsFecha || fechaHoyISO()}.pdf`, `Operaciones del día · ${opsFecha || fechaHoyISO()}`);
 }
 
-/* Exporta el comparativo de morosidad/efectividad por vendedor (panel de admin) */
+/* Exporta el comparativo de morosidad/capital por vendedor (panel de admin) */
 function exportarAdminResumenExcel(){
   const filas = adminResumenCache
     .map(v => ({ v, calc: calcularMorosidad(v) }))
     .sort((a,b) => b.calc.pct - a.calc.pct)
     .map(({v,calc}) => {
-      const pe = calcularEfectividad(v.promesasCumplidas||0, v.promesasIncumplidas||0);
+      const promedioCuotaVencida = (v.cuotasVencidas > 0 && v.saldoCapitalAtraso !== null && v.saldoCapitalAtraso !== undefined)
+        ? Math.round(v.saldoCapitalAtraso / v.cuotasVencidas) : '';
       return {
         'Vendedor': v.nombre || v.usuario,
-        'Clientes': v.totalClientes || 0,
-        'Cuotas vencidas': v.cuotasVencidas || 0,
-        'Cuotas pendientes': v.cuotasPendientes || 0,
+        'Op. desembolsadas': v.cantOperacionesDesembolsadas ?? '',
+        'Op. atrasadas': v.opsAtrasadas || 0,
+        'Capital actual (Gs.)': v.capitalActual ?? '',
         'Morosidad (%)': Number(calc.pct.toFixed(1)),
-        'Premio (<5%)': calc.pct < UMBRAL_PREMIO_MOROSIDAD ? 'Sí' : 'No',
-        'Efectividad (%)': pe === null ? '' : Number(pe.toFixed(0)),
-        'Promesas incumplidas': v.promesasIncumplidas || 0,
-        'Sin contacto crítico': v.sinContactoCritico || 0
+        'Capital atraso (Gs.)': v.saldoCapitalAtraso ?? '',
+        'Promedio cuota vencida (Gs.)': promedioCuotaVencida,
+        'Sin contacto crítico': v.sinContactoCritico || 0,
+        'Premio (<5%)': calc.pct < UMBRAL_PREMIO_MOROSIDAD ? 'Sí' : 'No'
       };
     });
   exportarExcel(filas, `NegoFin_Resumen_Vendedores_${fechaHoyISO()}.xlsx`, 'Resumen por vendedor');
@@ -2106,6 +2225,8 @@ function listaClientesFiltrada(){
     lista = lista.filter(c => c.cuotasVencidas > 0 && (c.diasSinContacto == null || c.diasSinContacto >= DIAS_SIN_CONTACTO_ALERTA));
   } else if(filtroEstado === 'promesa_incumplida'){
     lista = lista.filter(c => c.promesa && c.promesa.estado === 'incumplida');
+  } else if(filtroEstado === 'promesa_hoy'){
+    lista = lista.filter(c => c.promesa && c.promesa.estado === 'vence_hoy');
   } else if(filtroEstado === 'escalar'){
     lista = lista.filter(c => requiereEscalamiento(c));
   } else if(filtroEstado !== 'todos'){
@@ -2115,11 +2236,26 @@ function listaClientesFiltrada(){
   return ordenarLista(lista, ordenActual);
 }
 
+/* Atajo del botón/banner "Promesas de pago para hoy": aplica el filtro,
+ * marca el chip correspondiente como activo y lleva la vista a la lista
+ * de clientes, para que el operativo pueda hacer seguimiento de esas
+ * promesas sin tener que buscarlas manualmente. */
+function irAPromesasHoy(){
+  filtroEstado = 'promesa_hoy';
+  clientesPaginaActual = 1;
+  document.querySelectorAll('#vendorView .chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'promesa_hoy'));
+  renderClientes();
+  document.getElementById('clientGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderClientes(){
-  const lista = listaClientesFiltrada();
+  const listaCompleta = listaClientesFiltrada();
   document.getElementById('clientCount').textContent = clientesCache.length;
   const grid = document.getElementById('clientGrid');
-  renderClientRows(grid, lista, { showVendedor:false, showRank:true, modal:false, emptyMsg:'No se encontraron clientes con ese criterio.' });
+  const { pageItems, pagina, totalPaginas, total } = paginar(listaCompleta, clientesPaginaActual, PAGE_SIZE);
+  clientesPaginaActual = pagina;
+  renderClientRows(grid, pageItems, { showVendedor:false, showRank:true, modal:false, emptyMsg:'No se encontraron clientes con ese criterio.' });
+  renderPaginador('clientGridPaginador', pagina, totalPaginas, total, PAGE_SIZE, p => { clientesPaginaActual = p; renderClientes(); });
 }
 
 /* Renderizador compartido de filas de clientes (usado por vendedor y admin) */
@@ -2154,6 +2290,11 @@ function renderClientRows(container, lista, opts){
       : '';
     const fechaVencStat = (dias != null && dias > 0 && c.fechaVencidaMasAntigua)
       ? `<div class="stat"><span class="stat-label">Vence desde</span><b class="mono danger-text">${fmtFechaDDMMYYYY(c.fechaVencidaMasAntigua)}</b></div>` : '';
+    // Cuando el cliente NO tiene cuotas vencidas (está al día), mostramos
+    // en su lugar la fecha del próximo vencimiento, así el operario sabe
+    // cuándo vence la siguiente cuota sin tener que abrir el detalle.
+    const proximoVencStat = (!(dias != null && dias > 0) && c.proximoVencimiento)
+      ? `<div class="stat"><span class="stat-label">Próx. vencimiento</span><b class="mono">${fmtFechaDDMMYYYY(c.proximoVencimiento)}</b></div>` : '';
     const whatsappBtn = (dias != null && dias > 0)
       ? `<button class="btn-whatsapp" onclick="event.stopPropagation(); enviarCobranzaWhatsApp('${c.id}')" title="Enviar recordatorio de cobranza por WhatsApp">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.5 0-9.96 4.46-9.96 9.96 0 1.76.46 3.45 1.33 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.5 0 9.96-4.46 9.96-9.96S17.54 2 12.04 2zm5.85 14.1c-.25.7-1.45 1.33-1.99 1.4-.51.07-1.13.1-1.82-.12-.42-.13-.96-.31-1.65-.6-2.9-1.25-4.8-4.16-4.94-4.35-.14-.19-1.18-1.57-1.18-3 0-1.42.75-2.12 1.02-2.41.27-.29.58-.36.78-.36h.55c.18 0 .41-.02.64.5.25.56.83 1.94.9 2.08.07.14.12.31.02.5-.09.19-.14.31-.28.48-.14.16-.29.36-.42.49-.14.14-.28.29-.12.56.16.28.71 1.18 1.53 1.92 1.05.94 1.94 1.24 2.21 1.38.28.14.44.12.6-.07.16-.19.68-.79.87-1.06.18-.28.36-.23.6-.14.25.09 1.58.75 1.85.88.28.14.46.2.53.32.07.12.07.7-.18 1.4z"/></svg>
@@ -2176,6 +2317,7 @@ function renderClientRows(container, lista, opts){
           <div class="stat"><span class="stat-label">Vencidas</span><b class="mono danger-text">${c.cuotasVencidas||0}</b></div>
           <div class="stat"><span class="stat-label">Pendientes</span><b class="mono">${c.cuotasPendientes||0}</b></div>
           ${fechaVencStat}
+          ${proximoVencStat}
         </div>
         <div class="row-aging ${heat}">${fmtAging(dias)}</div>
         ${whatsappBtn}
@@ -2184,9 +2326,10 @@ function renderClientRows(container, lista, opts){
   }).join('');
 }
 
-document.getElementById('searchClient').addEventListener('input', renderClientes);
+document.getElementById('searchClient').addEventListener('input', () => { clientesPaginaActual = 1; renderClientes(); });
 document.getElementById('ordenSelect').addEventListener('change', e => {
   ordenActual = e.target.value;
+  clientesPaginaActual = 1;
   renderClientes();
 });
 document.querySelectorAll('#vendorView .chip').forEach(chip => {
@@ -2194,6 +2337,7 @@ document.querySelectorAll('#vendorView .chip').forEach(chip => {
     document.querySelectorAll('#vendorView .chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     filtroEstado = chip.dataset.filter;
+    clientesPaginaActual = 1;
     renderClientes();
   });
 });
@@ -2215,6 +2359,7 @@ async function cargarAdminResumen(){
       return;
     }
     adminResumenCache = resp.vendedores;
+    adminVendedoresPaginaActual = 1;
     renderAdminResumen();
   } catch(e){
     mostrarAdminSetup();
@@ -2247,8 +2392,16 @@ function renderAdminResumen(){
     a.promesasIncumplidas += Number(v.promesasIncumplidas || 0);
     a.promesasCumplidas += Number(v.promesasCumplidas || 0);
     a.sinContactoCritico += Number(v.sinContactoCritico || 0);
+    // Capital actual / capital atrasado (hoja "CALCULO DE MOROSIDAD"): se
+    // suman solo cuando el vendedor tiene el dato cargado, para que la
+    // morosidad global salga con el mismo criterio (capital) que cada
+    // fila de la tabla.
+    if(v.capitalActual !== null && v.capitalActual !== undefined){
+      a.capitalActual += Number(v.capitalActual) || 0;
+      a.saldoCapitalAtraso += Number(v.saldoCapitalAtraso) || 0;
+    }
     return a;
-  }, { totalClientes:0, cuotasVencidas:0, cuotasPendientes:0, promesasIncumplidas:0, promesasCumplidas:0, sinContactoCritico:0 });
+  }, { totalClientes:0, cuotasVencidas:0, cuotasPendientes:0, promesasIncumplidas:0, promesasCumplidas:0, sinContactoCritico:0, capitalActual:0, saldoCapitalAtraso:0 });
 
   const ganadoresPremio = adminResumenCache.filter(v => calcularMorosidad(v).pct < UMBRAL_PREMIO_MOROSIDAD).length;
 
@@ -2281,37 +2434,45 @@ function renderAdminResumen(){
     .sort((a,b) => b.calc.pct - a.calc.pct);
 
   document.getElementById('vendorCount').textContent = filas.length;
+
+  const { pageItems, pagina, totalPaginas, total } = paginar(filas, adminVendedoresPaginaActual, PAGE_SIZE);
+  adminVendedoresPaginaActual = pagina;
+  const offset = (pagina - 1) * PAGE_SIZE;
+
   document.getElementById('adminTableWrap').innerHTML = `
     <div class="vendor-table-wrap">
       <table class="vendor-table">
         <thead>
           <tr>
-            <th>Vendedor</th><th>Clientes</th><th>Cuotas vencidas</th><th>Cuotas pendientes</th><th>Morosidad</th><th>Efectividad</th><th>Promesas incump.</th><th>Sin contacto</th><th></th>
+            <th>Vendedor</th><th>Op. desembolsadas</th><th>Op. atrasadas</th><th>Capital actual</th><th>Morosidad</th><th>Capital atraso</th><th>Prom. cuota vencida</th><th>Sin contacto</th><th></th>
           </tr>
         </thead>
         <tbody>
-          ${filas.map((f, i) => `
+          ${pageItems.map((f, iRel) => { const i = offset + iRel;
+            const promedioCuotaVencida = (f.v.cuotasVencidas > 0 && f.v.saldoCapitalAtraso !== null && f.v.saldoCapitalAtraso !== undefined)
+              ? (f.v.saldoCapitalAtraso / f.v.cuotasVencidas) : null;
+            return `
             <tr onclick="verCarteraVendedor('${f.v.usuario}')">
               <td><span class="vendor-rank ${i<3 && f.calc.pct>=8 ? 'hot':''}">${i+1}</span>${escapeHtml(f.v.nombre || f.v.usuario)}${f.calc.pct < UMBRAL_PREMIO_MOROSIDAD ? `<span class="premio-badge" title="Califica al premio mensual (morosidad < ${UMBRAL_PREMIO_MOROSIDAD}%)">🏆</span>` : ''}</td>
-              <td class="mono">${f.v.totalClientes || 0}</td>
-              <td class="mono">${f.v.cuotasVencidas || 0}</td>
-              <td class="mono">${f.v.cuotasPendientes || 0}</td>
+              <td class="mono">${(f.v.cantOperacionesDesembolsadas === null || f.v.cantOperacionesDesembolsadas === undefined) ? '—' : f.v.cantOperacionesDesembolsadas}</td>
+              <td class="mono" style="color:${(f.v.opsAtrasadas||0) > 0 ? 'var(--danger-deep)' : 'inherit'};">${f.v.opsAtrasadas || 0}</td>
+              <td class="mono">${(f.v.capitalActual === null || f.v.capitalActual === undefined) ? '—' : fmtMoney(f.v.capitalActual)}</td>
               <td>
                 <div class="mora-bar-wrap">
                   <div class="mora-bar"><div class="mora-bar-fill" style="width:${Math.min(100,f.calc.pct)}%;background:${colorParaPct(f.calc.pct)};"></div></div>
                   <b class="mono" style="color:${colorParaPct(f.calc.pct)};">${f.calc.pct.toFixed(1)}%</b>
                 </div>
               </td>
-              <td>${(() => { const pe = calcularEfectividad(f.v.promesasCumplidas||0, f.v.promesasIncumplidas||0);
-                if(pe === null) return '<span class="mono" style="color:var(--text-dim);">—</span>';
-                return `<div class="eff-bar-wrap-mini"><div class="eff-bar-mini"><div class="eff-bar-mini-fill" style="width:${pe}%;background:${colorParaEfectividad(pe)};"></div></div><b class="mono" style="color:${colorParaEfectividad(pe)};">${pe.toFixed(0)}%</b></div>`; })()}</td>
-              <td class="mono" style="color:${(f.v.promesasIncumplidas||0) > 0 ? 'var(--danger-deep)' : 'inherit'};">${f.v.promesasIncumplidas || 0}</td>
+              <td class="mono" style="color:${(f.v.saldoCapitalAtraso||0) > 0 ? 'var(--danger-deep)' : 'inherit'};">${(f.v.saldoCapitalAtraso === null || f.v.saldoCapitalAtraso === undefined) ? '—' : fmtMoney(f.v.saldoCapitalAtraso)}</td>
+              <td class="mono">${promedioCuotaVencida === null ? '—' : fmtMoney(promedioCuotaVencida)}</td>
               <td class="mono" style="color:${(f.v.sinContactoCritico||0) > 0 ? 'var(--warn)' : 'inherit'};">${f.v.sinContactoCritico || 0}</td>
               <td><button class="btn-ver" onclick="event.stopPropagation();verCarteraVendedor('${f.v.usuario}')">Ver cartera</button></td>
-            </tr>`).join('')}
+            </tr>`; }).join('')}
         </tbody>
       </table>
     </div>`;
+
+  renderPaginador('adminVendedoresPaginador', pagina, totalPaginas, total, PAGE_SIZE, p => { adminVendedoresPaginaActual = p; renderAdminResumen(); });
 }
 
 /* Cierra el mes: le pide al backend que guarde una foto del resumen actual
@@ -2321,7 +2482,7 @@ function renderAdminResumen(){
  * de cierre, así queda trazable cuándo se calculó. */
 async function cerrarPremiosMes(){
   const btn = document.getElementById('btnCerrarPremios');
-  const periodo = new Date().toISOString().slice(0,7); // 'YYYY-MM'
+  const periodo = fechaLocalHoyISO().slice(0,7); // 'YYYY-MM' (fecha local, no UTC)
   if(!confirm(`¿Cerrar el mes ${periodo} y guardar quién califica al premio (morosidad < ${UMBRAL_PREMIO_MOROSIDAD}%)?\n\nEsto no borra ni cambia datos de clientes, solo guarda una foto del resumen actual en la hoja Historial_Premios.`)) return;
   btn.disabled = true;
   btn.textContent = 'Guardando...';
@@ -2347,6 +2508,7 @@ async function verCarteraVendedor(usuarioVendedor){
   document.getElementById('drillTitle').textContent = 'Cartera de ' + (vendedorActivo.nombre || vendedorActivo.usuario);
   document.getElementById('drillSub').textContent = 'Ordenada por prioridad de cobranza.';
   adminFiltroEstado = 'todos';
+  adminClientesPaginaActual = 1;
   document.querySelectorAll('#adminChipGroup .chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'todos'));
   document.getElementById('adminClientGrid').innerHTML = '<div class="loading">Cargando clientes...</div>';
 
@@ -2370,6 +2532,8 @@ function listaAdminClientesFiltrada(){
     lista = lista.filter(c => c.cuotasVencidas > 0 && (c.diasSinContacto == null || c.diasSinContacto >= DIAS_SIN_CONTACTO_ALERTA));
   } else if(adminFiltroEstado === 'promesa_incumplida'){
     lista = lista.filter(c => c.promesa && c.promesa.estado === 'incumplida');
+  } else if(adminFiltroEstado === 'promesa_hoy'){
+    lista = lista.filter(c => c.promesa && c.promesa.estado === 'vence_hoy');
   } else if(adminFiltroEstado === 'escalar'){
     lista = lista.filter(c => requiereEscalamiento(c));
   } else if(adminFiltroEstado !== 'todos'){
@@ -2380,21 +2544,26 @@ function listaAdminClientesFiltrada(){
 }
 
 function renderAdminClientes(){
-  const lista = listaAdminClientesFiltrada();
-  renderClientRows(document.getElementById('adminClientGrid'), lista, { showVendedor:false, showRank:true, modal:true, emptyMsg:'No se encontraron clientes con ese criterio.' });
+  const listaCompleta = listaAdminClientesFiltrada();
+  const { pageItems, pagina, totalPaginas, total } = paginar(listaCompleta, adminClientesPaginaActual, PAGE_SIZE);
+  adminClientesPaginaActual = pagina;
+  renderClientRows(document.getElementById('adminClientGrid'), pageItems, { showVendedor:false, showRank:true, modal:true, emptyMsg:'No se encontraron clientes con ese criterio.' });
+  renderPaginador('adminClientGridPaginador', pagina, totalPaginas, total, PAGE_SIZE, p => { adminClientesPaginaActual = p; renderAdminClientes(); });
 }
 
-document.getElementById('searchAdminClient').addEventListener('input', renderAdminClientes);
+document.getElementById('searchAdminClient').addEventListener('input', () => { adminClientesPaginaActual = 1; renderAdminClientes(); });
 document.getElementById('adminChipGroup').addEventListener('click', e => {
   const chip = e.target.closest('.chip');
   if(!chip) return;
   document.querySelectorAll('#adminChipGroup .chip').forEach(c => c.classList.remove('active'));
   chip.classList.add('active');
   adminFiltroEstado = chip.dataset.filter;
+  adminClientesPaginaActual = 1;
   renderAdminClientes();
 });
 document.getElementById('adminOrdenSelect').addEventListener('change', e => {
   adminOrdenActual = e.target.value;
+  adminClientesPaginaActual = 1;
   renderAdminClientes();
 });
 document.getElementById('btnAdminBack').addEventListener('click', () => {
@@ -2503,6 +2672,17 @@ async function abrirCliente(idCliente){
   wbDias.textContent = diasAtrasoCliente == null ? 'Al día' : diasAtrasoCliente + ' días';
   wbDias.style.color = diasAtrasoCliente > 0 ? 'var(--danger-deep)' : 'var(--ok)';
 
+  // Cuando el cliente está al día (sin cuotas vencidas), mostramos aparte
+  // la fecha del próximo vencimiento para que el operario sepa cuándo
+  // vence la siguiente cuota.
+  const proximoVencWrap = document.getElementById('wbProximoVencWrap');
+  if(diasAtrasoCliente == null && credito && credito.proximo_vencimiento){
+    document.getElementById('wbProximoVenc').textContent = fmtFechaDDMMYYYY(credito.proximo_vencimiento);
+    proximoVencWrap.style.display = '';
+  } else {
+    proximoVencWrap.style.display = 'none';
+  }
+
   renderResumenCuotas(credito);
 
   const cuotasHtml = credito ? `
@@ -2519,6 +2699,7 @@ async function abrirCliente(idCliente){
         <div class="wb-stat"><span>Vencidas</span><b class="mono" style="color:var(--danger);">${credito.cuotas_vencidas}</b></div>
         <div class="wb-stat"><span>Pendientes</span><b class="mono">${credito.cuotas_pendientes}</b></div>
         ${credito.fecha_vencida_mas_antigua ? `<div class="wb-stat"><span>Vence más antigua</span><b class="mono">${credito.fecha_vencida_mas_antigua}</b></div>` : ''}
+        ${credito.proximo_vencimiento ? `<div class="wb-stat"><span>Próximo vencimiento</span><b class="mono">${credito.proximo_vencimiento}</b></div>` : ''}
       </div>
     </div>` : '<div class="empty-state">Este cliente no tiene créditos registrados.</div>';
   ['panel-cuotas','wbPanelCuotas'].forEach(id => document.getElementById(id).innerHTML = cuotasHtml);
@@ -3042,3 +3223,4 @@ document.getElementById('btnAdminOpsBack').addEventListener('click', () => {
 </script>
 </body>
 </html>
+
